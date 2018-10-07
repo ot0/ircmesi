@@ -1,0 +1,10 @@
+# irc robot setting file
+
+[irc]
+server ="irc.qpic.org:6657"
+password = "hakozaki"
+nick = "robot2_v1"
+channel = "#test"
+
+[log]
+dir = "log"
