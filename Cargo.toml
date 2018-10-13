@@ -1,6 +1,6 @@
 [package]
 name = "mesi"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["ot0 a6u <ot0a6u@gmail.com>"]
 
 [dependencies]
@@ -10,3 +10,6 @@ serde = "*"
 serde_derive ="*"
 regex = "*"
 chrono = "*"
+
+diesel = {version = "*", features = ["sqlite", "chrono"]}
+dotenv = "*"
