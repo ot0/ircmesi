@@ -151,18 +151,21 @@ impl Mesi {
 
         let re_num = Regex::new(r"\d+").unwrap();
         let (target, start) = if re_num.is_match(sp[1])
-            {(sp[1].parse().unwrap() , 2)}
+            {(sp[1].parse().unwrap(), 2)}
             else {(self.now_project, 1)};
-        if target >= parties.len() {
+
+        let pid = if parties.len() ==0 {
+            -1
+        }else if target >= parties.len() {
             if start ==2 {
                 self.now_project = 0;
-           }
-            return
+            }
+            -1
         }else{
             self.now_project = target;
-        }
+            parties[target].id
+        };
         
-        let pid = parties[target].id;
         let command = sp[start];
         let opt = if sp.len() <= start+1{
             from.to_string()
