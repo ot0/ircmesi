@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>
+            irc mesi qpic
+        </title>
+    </head>
+    <body>
+        <h1>qpic irc</h1>
+        <h2>mesi</h2>
+        <table border="1">
+            <tr><th>id</th><th>title</th><th>number</th><th>member</th>
+            <th>create date</th><th>enable</th></tr>
+            {{#each mesi_list}}
+            <tr>
+            <td>{{id}}</td>
+            <td>{{title}}</td>
+            <td>{{number}}</td>
+            <td>{{member}}</td>
+            <td>{{create}}</td>
+            <td>{{enable}}</td>
+            </tr>
+            {{/each}}
+        </table>
+        <h2>log</h2>
+        {{#each log_list}}
+        <div><a href="{{dir}}">{{name}}</a></div>
+        {{/each}}
+    </body>
+</html>

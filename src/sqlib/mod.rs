@@ -60,6 +60,14 @@ pub fn get_party(conn: &SqliteConnection) -> Vec<Party>{
         .expect("Error load")
 }
 
+pub fn get_all_party(conn: &SqliteConnection) -> Vec<Party>{
+    use self::schema::party::dsl::{party, valid, create_time};
+    party
+        .order((valid, create_time.desc()))
+        .load::<Party>(conn)
+        .expect("Error load")
+}
+
 pub fn get_member(conn: &SqliteConnection, did:i32) -> Vec<Member>{
     use self::schema::member::dsl::{member, pid};
     member.filter(pid.eq(did))

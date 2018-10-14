@@ -3,8 +3,11 @@
 [irc]
 server ="irc.qpic.org:6657"
 password = "hakozaki"
-nick = "robot2_v1"
+nick = "robot2_v2"
 channel = "#test"
 
 [log]
 dir = "log"
+
+[webs]
+port = 9619

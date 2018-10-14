@@ -1,6 +1,6 @@
 [package]
 name = "mesi"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["ot0 a6u <ot0a6u@gmail.com>"]
 
 [dependencies]
@@ -13,3 +13,10 @@ chrono = "*"
 
 diesel = {version = "*", features = ["sqlite", "chrono"]}
 dotenv = "*"
+
+iron = "*"
+router = "*"
+mount = "*"
+handlebars-iron = "*"
+params = "*"
+staticfile = "*"
