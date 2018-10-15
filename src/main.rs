@@ -66,7 +66,9 @@ struct Log {
 
 #[derive(Deserialize)]
 struct Webs{
-    port:u32,
+    host:String,
+    username:String,
+    password:String,
 }
 
 fn main() {
@@ -129,7 +131,7 @@ fn connect_irc(setting:Setting) -> Result<(), Box<Error>>{
                 do_message(&format!("<{}>{}", from, opt), &setting);
             },
             "NOTICE" => {
-                do_message(&format!("<{}>{}", from, opt), &setting);
+                do_message(&format!("={}={}", from, opt), &setting);
             },
             "433" => {
                 // nick name already used

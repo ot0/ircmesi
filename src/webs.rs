@@ -8,7 +8,7 @@ use iron::prelude::*;
 use iron::{headers, middleware, status};
 use iron::typemap::TypeMap;
 
-use router::{Router, url_for};
+use router::Router;
 use mount::Mount;
 use hbs::{Template, HandlebarsEngine, DirectorySource};
 use staticfile::Static;
@@ -87,7 +87,8 @@ pub fn run_webs(setting:&Setting){
     //Create Chain
     let mut chain = Chain::new(mount);
     
-    chain.link_before(BasicAuthMiddleware);
+    let bam = BasicAuthMiddleware::new(&setting.webs.username, &setting.webs.password);
+    chain.link_before(bam);
 
     // Add HandlerbarsEngine to middleware Chain
     let mut hbse = HandlebarsEngine::new();
@@ -98,7 +99,8 @@ pub fn run_webs(setting:&Setting){
     }
     chain.link_after(hbse);
     
-    let host = format!("localhost:{}",setting.webs.port);
+    //let host = format!("localhost:{}",setting.webs.port);
+    let host = setting.webs.host.clone();
     println!("connect: http://{}", host);
 
     thread::spawn(move || {
@@ -122,9 +124,20 @@ impl Error for AuthError {
 }
 
 
-struct BasicAuthMiddleware;
+struct BasicAuthMiddleware {
+    name:String,
+    pass:String,
+}
 
-impl BasicAuthMiddleware{ 
+
+impl BasicAuthMiddleware{
+    fn new(name:&String, pass:&String) -> Self{
+        BasicAuthMiddleware{
+            name:name.clone(),
+            pass:pass.clone(),
+        }
+    }
+
     fn response_auth(&self) -> IronResult<()>{
         let mut hs = headers::Headers::new();
         hs.set_raw("WWW-Authenticate", vec![b"Basic realm=\"main\"".to_vec()]);
@@ -144,7 +157,7 @@ impl middleware::BeforeMiddleware for BasicAuthMiddleware {
     fn before(&self, req: &mut Request) -> IronResult<()> {
         match req.headers.get::<headers::Authorization<headers::Basic>>() {
             Some(&headers::Authorization(headers::Basic { ref username, password: Some(ref password) })) => {
-                if username =="qpic" && password == "qpic.org" {
+                if *username == self.name && *password == self.pass {
                     Ok(())
                 } else {
                     self.response_auth()

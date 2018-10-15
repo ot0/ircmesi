@@ -1,8 +1,8 @@
 # irc robot setting file
 
 [irc]
-server ="irc.qpic.org:6657"
-password = "hakozaki"
+server ="irc.org:6667"
+password = "hoge"
 nick = "robot2_v2"
 channel = "#test"
 
@@ -10,4 +10,6 @@ channel = "#test"
 dir = "log"
 
 [webs]
-port = 9619
+host = "0.0.0.0:9619"
+username = "mesi"
+password = "mesi"
