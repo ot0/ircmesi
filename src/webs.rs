@@ -7,6 +7,8 @@ use std::error::Error;
 use iron::prelude::*;
 use iron::{headers, middleware, status};
 use iron::typemap::TypeMap;
+use iron::headers::ContentType;
+use iron::Handler;
 
 use router::Router;
 use mount::Mount;
@@ -78,11 +80,19 @@ pub fn run_webs(setting:&Setting){
         .get("/hello", hello_page, "hello");
 
     let mut mount = Mount::new();
+    let sld = Static::new(Path::new(&format!("{}/", setting.log.dir)));
     mount
         .mount("/", router)
         .mount("/resources", Static::new(Path::new("resources/")))
-        .mount("/log", Static::new(
-            Path::new(&format!("{}/", setting.log.dir))));
+        .mount("/log", move |req: &mut Request| -> IronResult<Response> {
+            match sld.handle(req) {
+                Ok(mut res)=>{
+                    res.headers.set(ContentType::plaintext());
+                    Ok(res)
+                }
+                other => other
+            }
+        });
 
     //Create Chain
     let mut chain = Chain::new(mount);
