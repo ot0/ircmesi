@@ -1,6 +1,6 @@
 [package]
 name = "mesi"
-version = "0.1.3"
+version = "0.1.4"
 authors = ["ot0 a6u <ot0a6u@gmail.com>"]
 
 [dependencies]

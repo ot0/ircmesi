@@ -4,6 +4,32 @@
         <title>
             irc mesi qpic
         </title>
+        <script>
+    function send_dice(){
+        let xhr = new XMLHttpRequest();
+        let url = "dice";        
+        xhr.open("GET", url, true);
+        xhr.send();        
+    }
+
+    function get_log(){
+        let xhr = new XMLHttpRequest();
+        let url = "/msg"      
+        xhr.open("GET", url, true); 
+        xhr.onreadystatechange = function() {
+            if(xhr.readyState == 4 && xhr.status == 200){
+                document.getElementById("log_area").innerHTML = xhr.responseText;
+                setTimeout(get_log, 1000);
+            }
+        }
+        xhr.send();
+    }
+
+    document.addEventListener("DOMContentLoaded", function(event){
+        get_log();
+    });
+
+        </script>
     </head>
     <body>
         <h1>qpic irc</h1>
@@ -22,9 +48,19 @@
             </tr>
             {{/each}}
         </table>
+        <div>
+        <!--幹事:<input type="text" id="organizer" value="{{orgnaizer}}">-->
+        <input type="button" value="dice 2D6" onclick="send_dice()" />
+        </div>
+        <div>
+        <a href="http://masutaxa.xrea.jp/ekidata/">いけますよサーチ</a>
+        </div>
         <h2>log</h2>
+        <div id="log_area"></div>
+        <p>
         {{#each log_list}}
         <div><a href="{{dir}}">{{name}}</a></div>
         {{/each}}
+        </p>
     </body>
 </html>

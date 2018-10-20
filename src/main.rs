@@ -40,9 +40,16 @@ use encoding::all::ISO_2022_JP;
 use regex::Regex;
 use chrono::{Local};
 
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::sync::mpsc::{channel, Sender, Receiver};
+
+use std::collections::VecDeque;
+
 use mesi::Mesi;
 
-type BWriter<'a> = LineWriter<&'a TcpStream>;
+//type BWriter<'a> = LineWriter<&'a TcpStream>;
+type Mesg = Arc<Mutex<VecDeque<String>>>;
 
 #[derive(Deserialize)]
 pub struct Setting {
@@ -80,36 +87,35 @@ fn main() {
 
     let setting:Setting = toml::from_str(&setting_string).unwrap();
 
-    webs::run_webs(&setting);
-    connect_irc(setting).unwrap();
+    let (send, recv):(Sender<String>, Receiver<String>) = channel();
+    let messages:Mesg = Arc::new(Mutex::new(VecDeque::with_capacity(32)));
+
+    webs::run_webs(&setting, send.clone(), messages.clone());
+    connect_irc(setting, send, recv, messages).unwrap();
 }
 
-fn connect_irc(setting:Setting) -> Result<(), Box<Error>>{
+fn connect_irc(setting:Setting, send:Sender<String>, recv:Receiver<String>, messages:Mesg) -> Result<(), Box<Error>>{
 
-    let rstream = TcpStream::connect(&setting.irc.server)?;
-    let mut bstream = BufReader::new(&rstream);
-    let mut stream = LineWriter::new(&rstream);
+    let conn = Arc::new(TcpStream::connect(&setting.irc.server).unwrap());
+    let mut bstream = BufReader::new(&(*conn));
 
-    send_command(&mut stream, format!("PASS {}", setting.irc.password));
-    send_command(&mut stream, format!("NICK {}", setting.irc.nick));
-    send_command(&mut stream, format!("USER {} 0 * :mesi by rust", setting.irc.nick));
-    send_command(&mut stream, format!("JOIN {}", setting.irc.channel));    
+    let logdir = setting.log.dir.clone();
+    let do_message = move |line: &str| {
+        let filename = Path::new(&logdir).join(Local::now().format("irc%Y%m%d.txt").to_string());
+        let out = format!("{}{}\n",Local::now().format("%H:%M:%S"), line);
+        OpenOptions::new().create(true).append(true).open(filename).unwrap()
+            .write(out.as_bytes()).unwrap();
+        
+        messages.lock().unwrap().truncate(10);
+        messages.lock().unwrap().push_front(out);
+    };
 
-    let mut mesi = Mesi::new();
     let re_num = Regex::new(r"\d{3}").unwrap();
-
-    println!("connect irc");
-    loop {
-        let mut bl = String::new();
-        bstream.read_line(&mut bl).unwrap();
-
-        let line = ISO_2022_JP.decode(&bl.as_bytes()[..bl.len()-2], DecoderTrap::Ignore)
-            .unwrap_or("".to_string());
-        //println!("{}",line);
-
+    let send_irc = Mutex::new(send.clone());
+    let do_irc_fn = move |line:&String, mesi:Option<&mut Mesi>|{
         let sp: Vec<&str> = line.split(" ").collect();
         if sp.len() < 2 {
-            continue
+            return
         }
         let (from, command, to, opt) = {
             let (from, start) = if sp[0].starts_with(":") {(sp[0].get(1..).unwrap(), 1)} else {("", 0)};
@@ -120,44 +126,69 @@ fn connect_irc(setting:Setting) -> Result<(), Box<Error>>{
         };
         match command {
             "PING" => {
-                //println!("Pong {}\n", to);
-                send_command(&mut stream, format!("PONG {}\r\n", to));
+                send_irc.lock().unwrap().send(
+                    format!("PONG {}\r\n", to)
+                ).unwrap();
             },
+            "PONG" => {},
             "PRIVMSG" =>{
-                if opt.starts_with(":mesi") {
-                    mesi.recieve(&mut stream, from, to, &opt);
+                match mesi {
+                    Some(mesi) =>{
+                        if opt.starts_with(":mesi") {
+                            mesi.receive(from, to, &opt);
+                        }
+                    }
+                    None => {}
                 }
-                //println!("{} {} {}", command, from, opt);
-                do_message(&format!("<{}>{}", from, opt), &setting);
+                do_message(&format!("<{}>{}", from, opt));
             },
             "NOTICE" => {
-                do_message(&format!("={}={}", from, opt), &setting);
+                do_message(&format!("={}={}", from, opt));
             },
             "433" => {
                 // nick name already used
                 panic!("nick name alredy used");
             },
             x if re_num.is_match(x) =>{
+                // info message
                 //println!("{}", line);
             },
             _ => {
-                //println!("{} {} {}", command, from, opt);
-                do_message(&line, &setting);
+                do_message(&line);
             }
         }
+    };
+    let do_irc = Arc::new(do_irc_fn);
+
+    let acon = conn.clone();
+    let th_irc = do_irc.clone();
+    thread::spawn(move || {
+        let mut stream = LineWriter::new(&(*acon));
+        loop{
+            let s = recv.recv().unwrap();
+            th_irc(&s, None);
+            let en = ISO_2022_JP.encode(s.as_str(), EncoderTrap::Ignore)
+                .unwrap_or(b"".to_vec());
+            stream.write(en.as_slice()).unwrap();
+            stream.write(b"\r\n").unwrap();
+        }
+    });
+
+    send.send(format!("PASS {}", setting.irc.password)).unwrap();
+    send.send(format!("NICK {}", setting.irc.nick)).unwrap();
+    send.send(format!("USER {} 0 * :mesi by rust", setting.irc.nick)).unwrap();
+    send.send(format!("JOIN {}", setting.irc.channel)).unwrap();
+
+    let mut mesi = Mesi::new(send.clone());
+
+    println!("connect irc");
+    loop {
+        let mut bl = String::new();
+        bstream.read_line(&mut bl).unwrap();
+
+        let line = ISO_2022_JP.decode(&bl.as_bytes()[..bl.len()-2], DecoderTrap::Ignore)
+            .unwrap_or("".to_string());
+        //println!("{}",line);
+        do_irc(&line, Some(&mut mesi));
     }
-}
-
-pub fn send_command(stream:&mut BWriter, s:String){
-    let en = ISO_2022_JP.encode(s.as_str(), EncoderTrap::Ignore)
-        .unwrap_or(b"".to_vec());
-    stream.write(en.as_slice()).unwrap();
-    stream.write(b"\r\n").unwrap();
-}
-
-fn do_message(line: &str, setting: &Setting) {
-    let filename = Path::new(&setting.log.dir).join(Local::now().format("irc%Y%m%d.txt").to_string());
-    OpenOptions::new().create(true).append(true).open(filename).unwrap()
-        .write(format!("{}{}\n",Local::now().format("%H:%M:%S"), line).as_bytes()).unwrap();
-    //println!("{}", line);
 }

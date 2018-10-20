@@ -21,9 +21,12 @@ use std::fmt;
 //use std::process::Command;
 
 use std::thread;
+use std::sync::mpsc::Sender;
+use std::sync::Mutex;
 
 use super::Setting;
 use sqlib::{establish_connection, get_all_party, get_member};
+use super::Mesg;
 
 fn top_handler(_req: &mut Request, log_dir:&str) -> IronResult<Response> {
     let mut resp = Response::new();
@@ -50,10 +53,15 @@ fn top_handler(_req: &mut Request, log_dir:&str) -> IronResult<Response> {
     data.insert("mesi_list".to_string(), mesi_list);
 
     let mut log_list:Vec<HashMap<String, String>> = Vec::new();
-    for log in fs::read_dir(log_dir).unwrap() {
+    let mut filelist:Vec<String> = fs::read_dir(log_dir).unwrap()
+        .map(|r| r.unwrap().file_name().into_string().unwrap_or("code error".to_string()))
+        .collect();
+    filelist.sort_unstable();
+    filelist.reverse();
+    for filename in filelist {
         let mut logf = HashMap::new();
-        let filename = log.unwrap().file_name().into_string()
-            .unwrap_or("code error".to_string());
+        //let filename = log.unwrap().file_name().into_string()
+        //    .unwrap_or("code error".to_string());
         logf.insert("dir".to_string(), format!("log/{}", filename));
         logf.insert("name".to_string(), filename);
         log_list.push(logf);
@@ -67,16 +75,34 @@ fn hello_page(_: &mut Request) -> IronResult<Response> {
     Ok(Response::with((status::Ok, "Hello world")))
 }
 
-pub fn run_webs(setting:&Setting){
-
+pub fn run_webs(setting:&Setting, send:Sender<String>, messages:Mesg){
+    let msend = Mutex::new(send);
     let log_dir = setting.log.dir.to_string();
 
     //Create Router
     let mut router = Router::new();
+    let pagename = setting.irc.channel.clone();
+    let nick = setting.irc.nick.clone();
     router
         .get("/", move |req: &mut Request|-> IronResult<Response> {
             top_handler(req, &log_dir)
         }, "index")
+        .get("/dice", move |_:&mut Request| -> IronResult<Response> {
+            msend.lock().unwrap().send(format!(":{} PRIVMSG {} :2D6",nick, pagename)).unwrap();
+            Ok(Response::with((status::Ok, "dice")))
+        }, "dice")
+        .get("/msg", move |_:&mut Request| -> IronResult<Response>{
+            let mut msg = "".to_string();
+            for line in (*messages.lock().unwrap()).iter(){
+                msg += &format!("<div>{}</div>", line
+                    .replace("&","&amp;")
+                    .replace("<","&lt;")
+                    .replace(">","&gt;")
+                    .replace(" ", "&nbsp;")
+                );
+            }
+            Ok(Response::with((status::Ok, msg)))
+        }, "msg")
         .get("/hello", hello_page, "hello");
 
     let mut mount = Mount::new();

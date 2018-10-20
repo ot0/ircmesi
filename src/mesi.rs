@@ -1,20 +1,22 @@
 use regex::Regex;
 
 use sqlib;
-use super::send_command;
-use super::BWriter;
+use std::sync::mpsc::Sender;
 
 pub struct Mesi {
-    now_project:usize
+    now_project:usize,
+    send:Sender<String>,
 }
 
 impl Mesi {
-    pub fn new() -> Self{
+    pub fn new(send:Sender<String>) -> Self{
         Mesi{
-            now_project:0
+            now_project:0,
+            send:send,
         }
     }
-    pub fn recieve(&mut self, stream: &mut BWriter, from: &str, to:&str, opt:&String) {
+    
+    pub fn receive(&mut self, from: &str, to:&str, opt:&String) {
         let conn = sqlib::establish_connection();
         let parties = sqlib::get_party(&conn);
 
@@ -50,16 +52,16 @@ impl Mesi {
         match command {
             "shows" => {
                 for (i, pt) in parties.iter().enumerate() {
-                    send_command(stream, 
+                    self.send.send(
                         format!("NOTICE {} :{}, {}, {}", to, i, pt.title, pt.create_time)
-                    );
+                    ).unwrap();
                     let mut names:Vec<String> = Vec::new();
                     for mem in sqlib::get_member(&conn, pt.id){
                         names.push(mem.name);
                     }
-                    send_command(stream,
+                    self.send.send(
                         format!("NOTICE {} :{}", to, names.join(","))
-                    );
+                    ).unwrap();
                 }                
             },
             "+" =>{
