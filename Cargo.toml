@@ -10,6 +10,7 @@ serde = "*"
 serde_derive ="*"
 regex = "*"
 chrono = "*"
+getopts = "*"
 
 diesel = {version = "*", features = ["sqlite", "chrono"]}
 dotenv = "*"
@@ -20,3 +21,4 @@ mount = "*"
 handlebars-iron = "*"
 params = "*"
 staticfile = "*"
+hyper-native-tls = "*"

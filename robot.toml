@@ -2,8 +2,8 @@
 
 [irc]
 server ="irc.org:6667"
-password = "hoge"
-nick = "robot2_v2"
+password = ""
+nick = "robot2_v3"
 channel = "#test"
 
 [log]
@@ -13,3 +13,4 @@ dir = "log"
 host = "0.0.0.0:9619"
 username = "mesi"
 password = "mesi"
+pem = ""

@@ -10,6 +10,8 @@ use iron::typemap::TypeMap;
 use iron::headers::ContentType;
 use iron::Handler;
 
+use hyper_native_tls::NativeTlsServer;
+
 use router::Router;
 use mount::Mount;
 use hbs::{Template, HandlebarsEngine, DirectorySource};
@@ -23,6 +25,8 @@ use std::fmt;
 use std::thread;
 use std::sync::mpsc::Sender;
 use std::sync::Mutex;
+
+use regex::Regex;
 
 use super::Setting;
 use sqlib::{establish_connection, get_all_party, get_member};
@@ -83,6 +87,7 @@ pub fn run_webs(setting:&Setting, send:Sender<String>, messages:Mesg){
     let mut router = Router::new();
     let pagename = setting.irc.channel.clone();
     let nick = setting.irc.nick.clone();
+    let urlre = Regex::new("((https?|ftp)(://[-_.!~*'()a-zA-Z0-9;/?:@&=+$,%#]+))").unwrap();
     router
         .get("/", move |req: &mut Request|-> IronResult<Response> {
             top_handler(req, &log_dir)
@@ -98,10 +103,11 @@ pub fn run_webs(setting:&Setting, send:Sender<String>, messages:Mesg){
                     .replace("&","&amp;")
                     .replace("<","&lt;")
                     .replace(">","&gt;")
-                    .replace(" ", "&nbsp;")
+                    //.replace(" ", "&nbsp;")
                 );
             }
-            Ok(Response::with((status::Ok, msg)))
+            let msg = urlre.replace_all(&msg, "<a href=\"$0\">$0</a>");
+            Ok(Response::with((status::Ok, format!("{}", msg))))
         }, "msg")
         .get("/hello", hello_page, "hello");
 
@@ -137,11 +143,19 @@ pub fn run_webs(setting:&Setting, send:Sender<String>, messages:Mesg){
     
     //let host = format!("localhost:{}",setting.webs.port);
     let host = setting.webs.host.clone();
-    println!("connect: http://{}", host);
-
-    thread::spawn(move || {
-        Iron::new(chain).http(host).unwrap();
-    });
+    let pem = setting.webs.pem.clone();
+    if pem != "" {
+        println!("connect: https://{}", host);
+        let ssl = NativeTlsServer::new(pem, "").unwrap();
+        thread::spawn(move || {
+            Iron::new(chain).https(host, ssl).unwrap();
+        });
+    }else{
+        println!("connect: http://{}", host);
+        thread::spawn(move || {
+            Iron::new(chain).http(host).unwrap();
+        });
+    }
 }
 
 #[derive(Debug)]

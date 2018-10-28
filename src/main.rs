@@ -1,6 +1,7 @@
 extern crate encoding;
 extern crate regex;
 extern crate chrono;
+extern crate getopts;
 
 // db 
 #[macro_use]
@@ -19,6 +20,7 @@ extern crate mount;
 extern crate staticfile;
 extern crate handlebars_iron as hbs;
 extern crate params;
+extern crate hyper_native_tls;
 
 mod mesi;
 mod webs;
@@ -29,6 +31,9 @@ use std::io::{BufReader, LineWriter};
 use std::error::Error;
 use std::net::TcpStream;
 
+use std::env;
+use getopts::Options;
+
 use std::string::String;
 
 use std::fs::OpenOptions;
@@ -37,7 +42,7 @@ use std::path::Path;
 use encoding::{Encoding, DecoderTrap, EncoderTrap};
 use encoding::all::ISO_2022_JP;
 
-use regex::Regex;
+//use regex::Regex;
 use chrono::{Local};
 
 use std::sync::{Arc, Mutex};
@@ -76,13 +81,33 @@ struct Webs{
     host:String,
     username:String,
     password:String,
+    pem:String,
 }
 
 fn main() {
     println!("Hello, world!");
-    let filename = "robot.toml";
+    
+    let args: Vec<String> = env::args().collect();
+
+    let mut opts = Options::new();
+    opts.optopt("s", "", "set setting file name", "robot.toml");
+    opts.optflag("h", "help", "print this help menu");
+
+    let matches = opts.parse(&args[1..])
+        .unwrap_or_else(|f| panic!(f.to_string()));
+
+    if matches.opt_present("h") {
+        print!("{}", opts.usage("Usage: mesi [options]"));
+        return
+    }
+
+    let filename = match matches.opt_str("s") {
+        Some(x) => x,
+        None => "robot.toml".to_string()
+    };
+
     let mut setting_string = String::new();
-    OpenOptions::new().read(true).open(filename).unwrap()
+    OpenOptions::new().read(true).open(&filename).unwrap()
         .read_to_string(&mut setting_string).unwrap();
 
     let setting:Setting = toml::from_str(&setting_string).unwrap();
@@ -106,12 +131,12 @@ fn connect_irc(setting:Setting, send:Sender<String>, recv:Receiver<String>, mess
         OpenOptions::new().create(true).append(true).open(filename).unwrap()
             .write(out.as_bytes()).unwrap();
         
-        messages.lock().unwrap().truncate(10);
+        messages.lock().unwrap().truncate(31);
         messages.lock().unwrap().push_front(out);
     };
 
-    let re_num = Regex::new(r"\d{3}").unwrap();
     let send_irc = Mutex::new(send.clone());
+    let nick = setting.irc.nick.clone();
     let do_irc_fn = move |line:&String, mesi:Option<&mut Mesi>|{
         let sp: Vec<&str> = line.split(" ").collect();
         if sp.len() < 2 {
@@ -130,7 +155,6 @@ fn connect_irc(setting:Setting, send:Sender<String>, recv:Receiver<String>, mess
                     format!("PONG {}\r\n", to)
                 ).unwrap();
             },
-            "PONG" => {},
             "PRIVMSG" =>{
                 match mesi {
                     Some(mesi) =>{
@@ -145,16 +169,31 @@ fn connect_irc(setting:Setting, send:Sender<String>, recv:Receiver<String>, mess
             "NOTICE" => {
                 do_message(&format!("={}={}", from, opt));
             },
+            "332" | "TOPIC" => {
+                // topic
+                do_message(&format!("/topic {}", opt));
+            }
+            "353" => {
+                // NAMES return
+                do_message(&format!("/member {}", opt));
+            }
             "433" => {
                 // nick name already used
                 panic!("nick name alredy used");
             },
-            x if re_num.is_match(x) =>{
-                // info message
-                //println!("{}", line);
+            "JOIN" | "QUIT" | "PART" => {
+                if from != nick{
+                    send_irc.lock().unwrap().send(format!("NAMES {}", to)).unwrap();
+                }
+                do_message(&line);
+            },
+            
+             "ERROR" => {
+               do_message(&line);
             },
             _ => {
-                do_message(&line);
+                //do_message(&line);
+                //println!("{}", line)
             }
         }
     };
@@ -177,7 +216,7 @@ fn connect_irc(setting:Setting, send:Sender<String>, recv:Receiver<String>, mess
     send.send(format!("PASS {}", setting.irc.password)).unwrap();
     send.send(format!("NICK {}", setting.irc.nick)).unwrap();
     send.send(format!("USER {} 0 * :mesi by rust", setting.irc.nick)).unwrap();
-    send.send(format!("JOIN {}", setting.irc.channel)).unwrap();
+    send.send(format!(":{} JOIN {}", setting.irc.nick, setting.irc.channel)).unwrap();
 
     let mut mesi = Mesi::new(send.clone());
 
