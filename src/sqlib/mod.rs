@@ -31,18 +31,11 @@ pub fn add_party(conn: &SqliteConnection, title: &str) -> usize {
         .expect("Error saving new post")
 }
 
-pub fn add_member(conn: &SqliteConnection, name: &str, pid:i32) -> usize {
-    use self::schema::member;
-
-    let nm = NewMember {
-        name: name,
-        pid: pid,
-    };
-
-    diesel::insert_into(member::table)
-        .values(&nm)
-        .execute(conn)
-        .expect("Error saving new post")
+pub fn set_party(conn: &SqliteConnection, pid:i32, new_title: &str) {
+    use self::schema::party::dsl::{party, id, title};
+    diesel::update(party.filter(id.eq(pid)))
+        .set(title.eq(new_title))
+        .execute(conn).unwrap();
 }
 
 pub fn enable_party(conn: &SqliteConnection, pid:i32, enable:bool){
@@ -66,6 +59,20 @@ pub fn get_all_party(conn: &SqliteConnection) -> Vec<Party>{
         .order((valid, create_time.desc()))
         .load::<Party>(conn)
         .expect("Error load")
+}
+
+pub fn add_member(conn: &SqliteConnection, name: &str, pid:i32) -> usize {
+    use self::schema::member;
+
+    let nm = NewMember {
+        name: name,
+        pid: pid,
+    };
+
+    diesel::insert_into(member::table)
+        .values(&nm)
+        .execute(conn)
+        .expect("Error saving new post")
 }
 
 pub fn get_member(conn: &SqliteConnection, did:i32) -> Vec<Member>{

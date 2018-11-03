@@ -3,6 +3,15 @@ use std::collections::HashMap;
 use std::vec::Vec;
 use std::error::Error;
 //use std::time::Duration;
+use std::path::Path;
+use std::fs;
+use std::fmt;
+//use std::process::Command;
+
+use std::thread;
+use std::sync::mpsc::Sender;
+use std::sync::Mutex;
+use std::time::Instant;
 
 use iron::prelude::*;
 use iron::{headers, middleware, status};
@@ -12,21 +21,11 @@ use iron::Handler;
 
 use hyper_native_tls::NativeTlsServer;
 
-use router::Router;
 use mount::Mount;
 use hbs::{Template, HandlebarsEngine, DirectorySource};
 use staticfile::Static;
 
-use std::path::Path;
-use std::fs;
-use std::fmt;
-//use std::process::Command;
-
-use std::thread;
-use std::sync::mpsc::Sender;
-use std::sync::Mutex;
-
-use regex::Regex;
+use params::{Params, Value};
 
 use super::Setting;
 use sqlib::{establish_connection, get_all_party, get_member};
@@ -75,46 +74,20 @@ fn top_handler(_req: &mut Request, log_dir:&str) -> IronResult<Response> {
     return Ok(resp);
 }
 
-fn hello_page(_: &mut Request) -> IronResult<Response> {
-    Ok(Response::with((status::Ok, "Hello world")))
-}
-
 pub fn run_webs(setting:&Setting, send:Sender<String>, messages:Mesg){
+
     let msend = Mutex::new(send);
     let log_dir = setting.log.dir.to_string();
-
-    //Create Router
-    let mut router = Router::new();
     let pagename = setting.irc.channel.clone();
     let nick = setting.irc.nick.clone();
-    let urlre = Regex::new("((https?|ftp)(://[-_.!~*'()a-zA-Z0-9;/?:@&=+$,%#]+))").unwrap();
-    router
-        .get("/", move |req: &mut Request|-> IronResult<Response> {
-            top_handler(req, &log_dir)
-        }, "index")
-        .get("/dice", move |_:&mut Request| -> IronResult<Response> {
-            msend.lock().unwrap().send(format!(":{} PRIVMSG {} :2D6",nick, pagename)).unwrap();
-            Ok(Response::with((status::Ok, "dice")))
-        }, "dice")
-        .get("/msg", move |_:&mut Request| -> IronResult<Response>{
-            let mut msg = "".to_string();
-            for line in (*messages.lock().unwrap()).iter(){
-                msg += &format!("<div>{}</div>", line
-                    .replace("&","&amp;")
-                    .replace("<","&lt;")
-                    .replace(">","&gt;")
-                    //.replace(" ", "&nbsp;")
-                );
-            }
-            let msg = urlre.replace_all(&msg, "<a href=\"$0\">$0</a>");
-            Ok(Response::with((status::Ok, format!("{}", msg))))
-        }, "msg")
-        .get("/hello", hello_page, "hello");
+    let sld = Static::new(Path::new(&format!("{}/", setting.log.dir)));
+    let before = Mutex::new(Instant::now());
 
     let mut mount = Mount::new();
-    let sld = Static::new(Path::new(&format!("{}/", setting.log.dir)));
     mount
-        .mount("/", router)
+        .mount("/", move |req: &mut Request|-> IronResult<Response> {
+            top_handler(req, &log_dir)
+        })
         .mount("/resources", Static::new(Path::new("resources/")))
         .mount("/log", move |req: &mut Request| -> IronResult<Response> {
             match sld.handle(req) {
@@ -123,6 +96,28 @@ pub fn run_webs(setting:&Setting, send:Sender<String>, messages:Mesg){
                     Ok(res)
                 }
                 other => other
+            }
+        })
+        .mount("/msg", move |req:&mut Request| -> IronResult<Response>{
+            let irc = messages.lock().unwrap();
+            let map = req.get_ref::<Params>().unwrap();
+            match map.find(&["id"]){
+                Some(&Value::String(ref id)) if *id == irc.id.to_string() => {
+                    Ok(Response::with(status::NoContent))
+                }
+                _ => {
+                    Ok(Response::with((status::Ok, json!(*irc).to_string())))
+                }
+            }
+        })
+        .mount("/dice", move |_:&mut Request| -> IronResult<Response> {
+            let mut t = before.lock().unwrap();
+            if t.elapsed().as_secs() > 10 {
+                msend.lock().unwrap().send(format!(":{} PRIVMSG {} :2D6",nick, pagename)).unwrap();
+                *t = Instant::now();
+                Ok(Response::with((status::Ok, "dice")))
+            }else{
+                Ok(Response::with((status::ServiceUnavailable, "wait")))
             }
         });
 

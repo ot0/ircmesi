@@ -3,7 +3,7 @@
 [irc]
 server ="irc.org:6667"
 password = ""
-nick = "robot2_v3"
+nick = "robot2"
 channel = "#test"
 
 [log]
@@ -13,4 +13,5 @@ dir = "log"
 host = "0.0.0.0:9619"
 username = "mesi"
 password = "mesi"
+# set pkcs12 file, if https connected else ""
 pem = ""

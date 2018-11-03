@@ -12,10 +12,11 @@ extern crate dotenv;
 #[macro_use]
 extern crate serde_derive;
 extern crate toml;
+#[macro_use]
+extern crate serde_json;
 
 //http
 extern crate iron;
-extern crate router;
 extern crate mount;
 extern crate staticfile;
 extern crate handlebars_iron as hbs;
@@ -54,16 +55,43 @@ use std::collections::VecDeque;
 use mesi::Mesi;
 
 //type BWriter<'a> = LineWriter<&'a TcpStream>;
-type Mesg = Arc<Mutex<VecDeque<String>>>;
+#[derive(Serialize, Debug)]
+pub struct IrcMesg  {
+    topic:String,
+    member:String,
+    cap:usize,
+    log:VecDeque<String>,
+    id:u64,
+}
+type Mesg = Arc<Mutex<IrcMesg>>;
 
-#[derive(Deserialize)]
+impl IrcMesg {
+    pub fn new() -> Mesg {
+        let msg = IrcMesg {
+            topic:"".to_string(),
+            member:"".to_string(),
+            cap: 32,
+            log:VecDeque::with_capacity(32),
+            id:0,
+        };
+        Arc::new(Mutex::new(msg))
+    }
+    pub fn append(&mut self, msg:String)-> &mut Self{
+        self.log.truncate(self.cap-1);
+        self.log.push_front(msg);
+        self.id += 1;
+        self
+    }
+}
+
+#[derive(Deserialize, Debug)]
 pub struct Setting {
     irc:Irc,
     log:Log,
     webs:Webs,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct Irc {
     server:String,
     password:String,
@@ -71,18 +99,19 @@ struct Irc {
     channel:String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct Log {
     dir:String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct Webs{
     host:String,
     username:String,
     password:String,
     pem:String,
 }
+
 
 fn main() {
     println!("Hello, world!");
@@ -113,7 +142,7 @@ fn main() {
     let setting:Setting = toml::from_str(&setting_string).unwrap();
 
     let (send, recv):(Sender<String>, Receiver<String>) = channel();
-    let messages:Mesg = Arc::new(Mutex::new(VecDeque::with_capacity(32)));
+    let messages:Mesg = IrcMesg::new();
 
     webs::run_webs(&setting, send.clone(), messages.clone());
     connect_irc(setting, send, recv, messages).unwrap();
@@ -125,18 +154,20 @@ fn connect_irc(setting:Setting, send:Sender<String>, recv:Receiver<String>, mess
     let mut bstream = BufReader::new(&(*conn));
 
     let logdir = setting.log.dir.clone();
+    let msg = messages.clone();
     let do_message = move |line: &str| {
         let filename = Path::new(&logdir).join(Local::now().format("irc%Y%m%d.txt").to_string());
         let out = format!("{}{}\n",Local::now().format("%H:%M:%S"), line);
         OpenOptions::new().create(true).append(true).open(filename).unwrap()
             .write(out.as_bytes()).unwrap();
         
-        messages.lock().unwrap().truncate(31);
-        messages.lock().unwrap().push_front(out);
+        msg.lock().unwrap().append(out);
     };
 
     let send_irc = Mutex::new(send.clone());
     let nick = setting.irc.nick.clone();
+    let channel = setting.irc.channel.clone();
+    let msg = messages.clone();
     let do_irc_fn = move |line:&String, mesi:Option<&mut Mesi>|{
         let sp: Vec<&str> = line.split(" ").collect();
         if sp.len() < 2 {
@@ -172,10 +203,12 @@ fn connect_irc(setting:Setting, send:Sender<String>, recv:Receiver<String>, mess
             "332" | "TOPIC" => {
                 // topic
                 do_message(&format!("/topic {}", opt));
+                msg.lock().unwrap().topic = opt;
             }
             "353" => {
                 // NAMES return
-                do_message(&format!("/member {}", opt));
+                //do_message(&format!("/member {}", opt));
+                msg.lock().unwrap().member = opt;
             }
             "433" => {
                 // nick name already used
@@ -183,7 +216,7 @@ fn connect_irc(setting:Setting, send:Sender<String>, recv:Receiver<String>, mess
             },
             "JOIN" | "QUIT" | "PART" => {
                 if from != nick{
-                    send_irc.lock().unwrap().send(format!("NAMES {}", to)).unwrap();
+                    send_irc.lock().unwrap().send(format!("NAMES {}", channel)).unwrap();
                 }
                 do_message(&line);
             },

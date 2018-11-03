@@ -87,6 +87,9 @@ impl Mesi {
             "del" =>{
                 sqlib::enable_party(&conn, pid, false);
             }
+            "title" =>{
+                sqlib::set_party(&conn, pid, &opt);
+            }
             _ => {
                 println!("{},{},{},{}", command, from, opt, to);
             }

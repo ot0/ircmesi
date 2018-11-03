@@ -5,6 +5,7 @@
             irc mesi qpic
         </title>
         <script>
+
     function send_dice(){
         let xhr = new XMLHttpRequest();
         let url = "dice";        
@@ -12,13 +13,35 @@
         xhr.send();        
     }
 
+    let update = 0;            
+    let urlreg = new RegExp("((https?|ftp)(:\/\/[-_.!~*\'()a-zA-Z0-9;\/?:\@&=+\$,%#]+))", "g");
+    function reptxt(text){
+        return text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(urlreg, "<a href='$1' target='_blank'>$1</a>");
+    }
+
     function get_log(){
         let xhr = new XMLHttpRequest();
-        let url = "/msg"      
+        let url = "/msg?id="+update      
         xhr.open("GET", url, true); 
+        xhr.responseType = 'json';
         xhr.onreadystatechange = function() {
-            if(xhr.readyState == 4 && xhr.status == 200){
-                document.getElementById("log_area").innerHTML = xhr.responseText;
+            if(xhr.readyState == 4){
+                if(xhr.status == 200){
+                    let log = xhr.response;
+                    document.getElementById("topic").innerHTML = reptxt(log.topic);
+                    document.getElementById("member").innerHTML = reptxt(log.member);
+                    let msg = "";
+                    for(let line of log.log){
+                        msg +="<div>" + reptxt(line) + "</div>";
+                    }
+
+                    document.getElementById("log_area").innerHTML = msg;
+                    update = log.id;
+                }
                 setTimeout(get_log, 1000);
             }
         }
@@ -56,6 +79,9 @@
         <a href="http://masutaxa.xrea.jp/ekidata/">いけますよサーチ</a>
         </div>
         <h2>log</h2>
+        <div><label for="topic">Topic:</label><span id="topic" style="font-weight:bold"></span></div>
+        <div><label for="member">Member</label><span id="member"></span></div>
+        <br>
         <div id="log_area"></div>
         <p>
         {{#each log_list}}
