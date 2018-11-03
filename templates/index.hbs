@@ -59,7 +59,7 @@
                 for(let gp of xhr.response){
                     if(gp.type == "match"){
                         let d = gp.data;
-                        msg += "<div>" + d.path.text + ": " + d.line_number + ": " +d.lines.text + "</div>"
+                        msg += "<div>" + d.path.text + ": " + d.line_number + ": " + reptxt(d.lines.text) + "</div>"
                     }
                 document.getElementById("search_area").innerHTML = msg;
                 }
