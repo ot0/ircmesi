@@ -23,6 +23,10 @@ extern crate handlebars_iron as hbs;
 extern crate params;
 extern crate hyper_native_tls;
 
+extern crate grep_regex;
+extern crate grep_printer;
+extern crate grep_searcher;
+
 mod mesi;
 mod webs;
 mod sqlib;

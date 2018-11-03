@@ -48,6 +48,26 @@
         xhr.send();
     }
 
+    function searchlog(){
+        let xhr = new XMLHttpRequest();
+        let url = "/grep?q=" + encodeURIComponent(document.getElementById("search").value);
+        xhr.open("GET", url, true); 
+        xhr.responseType = 'json';
+        xhr.onreadystatechange = function() {
+            if(xhr.readyState == 4 && xhr.status == 200){
+                let msg = "";
+                for(let gp of xhr.response){
+                    if(gp.type == "match"){
+                        let d = gp.data;
+                        msg += "<div>" + d.path.text + ": " + d.line_number + ": " +d.lines.text + "</div>"
+                    }
+                document.getElementById("search_area").innerHTML = msg;
+                }
+            }
+        }
+        xhr.send();
+    }
+
     document.addEventListener("DOMContentLoaded", function(event){
         get_log();
     });
@@ -83,6 +103,9 @@
         <div><label for="member">Member</label><span id="member"></span></div>
         <br>
         <div id="log_area"></div>
+        <h3>grep</h3>
+        <div><input type="text" id="search"/><input type="button" value="grep" onclick="searchlog()"/></div>
+        <div id="search_area"></div>
         <p>
         {{#each log_list}}
         <div><a href="{{dir}}">{{name}}</a></div>

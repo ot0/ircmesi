@@ -12,6 +12,9 @@ serde_json = "*"
 regex = "*"
 chrono = "*"
 getopts = "*"
+grep-regex = "*"
+grep-printer = "*"
+grep-searcher = "*"
 
 diesel = {version = "*", features = ["sqlite", "chrono"]}
 dotenv = "*"

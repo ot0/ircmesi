@@ -31,6 +31,19 @@ use super::Setting;
 use sqlib::{establish_connection, get_all_party, get_member};
 use super::Mesg;
 
+use grep_regex::RegexMatcher;
+use grep_printer;
+use grep_searcher::Searcher;
+
+fn get_filelist(dir:&str) ->Vec<String> {
+    let mut filelist:Vec<String>= fs::read_dir(dir).unwrap()
+        .map(|r| r.unwrap().file_name().into_string().unwrap_or("code error".to_string()))
+        .collect();
+    filelist.sort_unstable();
+    filelist.reverse();
+    filelist
+}
+
 fn top_handler(_req: &mut Request, log_dir:&str) -> IronResult<Response> {
     let mut resp = Response::new();
     let mut data = HashMap::new();
@@ -56,11 +69,8 @@ fn top_handler(_req: &mut Request, log_dir:&str) -> IronResult<Response> {
     data.insert("mesi_list".to_string(), mesi_list);
 
     let mut log_list:Vec<HashMap<String, String>> = Vec::new();
-    let mut filelist:Vec<String> = fs::read_dir(log_dir).unwrap()
-        .map(|r| r.unwrap().file_name().into_string().unwrap_or("code error".to_string()))
-        .collect();
-    filelist.sort_unstable();
-    filelist.reverse();
+    let filelist = get_filelist(log_dir); 
+
     for filename in filelist {
         let mut logf = HashMap::new();
         //let filename = log.unwrap().file_name().into_string()
@@ -73,11 +83,26 @@ fn top_handler(_req: &mut Request, log_dir:&str) -> IronResult<Response> {
     resp.set_mut(Template::new("index", data)).set_mut(status::Ok);
     return Ok(resp);
 }
+fn grep(dir:&String, query:&String) ->Result<String, Box<Error>> {
+    let mut printer = grep_printer::JSON::new(vec![]);
+    let matcher = RegexMatcher::new(&*query)?;
+    let mut searcher = Searcher::new();
+    let filelist = get_filelist(dir);
+    for filename in filelist {
+        let path = format!("{}/{}",dir, filename);
+        searcher.search_path(&matcher, path, printer.sink_with_path(&matcher, &filename))?;
+    }
+    let result = String::from_utf8(printer.into_inner())?;
+    
+    //println!("query:{}, {:?}", query, result);
+    Ok(result.replace("\n",","))
+}
 
 pub fn run_webs(setting:&Setting, send:Sender<String>, messages:Mesg){
 
     let msend = Mutex::new(send);
-    let log_dir = setting.log.dir.to_string();
+    let log_dir = setting.log.dir.clone();
+    let search_dir = setting.log.dir.clone();
     let pagename = setting.irc.channel.clone();
     let nick = setting.irc.nick.clone();
     let sld = Static::new(Path::new(&format!("{}/", setting.log.dir)));
@@ -107,6 +132,26 @@ pub fn run_webs(setting:&Setting, send:Sender<String>, messages:Mesg){
                 }
                 _ => {
                     Ok(Response::with((status::Ok, json!(*irc).to_string())))
+                }
+            }
+        })
+        .mount("/grep", move |req:&mut Request| -> IronResult<Response>{
+            let map = req.get_ref::<Params>().unwrap();
+            match map.find(&["q"]){
+                Some(&Value::String(ref query)) =>{
+                    //println!("{}", query);
+                    match grep(&search_dir, query) {
+                        Ok(msg) =>{
+                            Ok(Response::with((status::Ok,format!("[{}{{\"type\":\"\"}}]",msg))))
+                        } 
+                        Err(err)=> {
+                            println!("search error:{:?}", err);
+                            Ok(Response::with((status::BadRequest, format!("{:?}", err))))
+                        }
+                    }
+                }
+                _ => {
+                    Ok(Response::with((status::BadRequest, "query error")))
                 }
             }
         })
