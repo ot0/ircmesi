@@ -2,14 +2,12 @@
 use std::collections::HashMap;
 use std::vec::Vec;
 use std::error::Error;
-//use std::time::Duration;
 use std::path::Path;
 use std::fs;
 use std::fmt;
-//use std::process::Command;
 
 use std::thread;
-use std::sync::mpsc::Sender;
+//use std::sync::mpsc::Sender;
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -34,6 +32,8 @@ use super::Mesg;
 use grep_regex::RegexMatcher;
 use grep_printer;
 use grep_searcher::Searcher;
+
+use super::MSend;
 
 fn get_filelist(dir:&str) ->Vec<String> {
     let mut filelist:Vec<String>= fs::read_dir(dir).unwrap()
@@ -83,6 +83,7 @@ fn top_handler(_req: &mut Request, log_dir:&str) -> IronResult<Response> {
     resp.set_mut(Template::new("index", data)).set_mut(status::Ok);
     return Ok(resp);
 }
+
 fn grep(dir:&String, query:&String) ->Result<String, Box<Error>> {
     let mut printer = grep_printer::JSON::new(vec![]);
     let matcher = RegexMatcher::new(&*query)?;
@@ -98,13 +99,16 @@ fn grep(dir:&String, query:&String) ->Result<String, Box<Error>> {
     Ok(result.replace("\n",","))
 }
 
-pub fn run_webs(setting:&Setting, send:Sender<String>, messages:Mesg){
+pub fn run_webs(setting:&Setting, send:MSend, messages:Mesg){
 
-    let msend = Mutex::new(send);
+    let send_send = send.clone();
+    let dice_send = send.clone();
     let log_dir = setting.log.dir.clone();
     let search_dir = setting.log.dir.clone();
     let pagename = setting.irc.channel.clone();
     let nick = setting.irc.nick.clone();
+    let dice_pagename = setting.irc.channel.clone();
+    let dice_nick = setting.irc.nick.clone();    
     let sld = Static::new(Path::new(&format!("{}/", setting.log.dir)));
     let before = Mutex::new(Instant::now());
 
@@ -126,13 +130,28 @@ pub fn run_webs(setting:&Setting, send:Sender<String>, messages:Mesg){
         .mount("/msg", move |req:&mut Request| -> IronResult<Response>{
             let irc = messages.lock().unwrap();
             let map = req.get_ref::<Params>().unwrap();
-            match map.find(&["id"]){
-                Some(&Value::String(ref id)) if *id == irc.id.to_string() => {
-                    Ok(Response::with(status::NoContent))
+            let pos:u64 = match map.find(&["id"]){
+                Some(&Value::String(ref id))=> {
+                    match id.parse() {
+                        Ok(n) =>{ n }
+                        _ => { irc.id - 1 }
+                    }
                 }
-                _ => {
-                    Ok(Response::with((status::Ok, json!(*irc).to_string())))
-                }
+                _ => { irc.id - 1 }
+            };
+            if pos < irc.id{
+                /*
+                let start = if(pos > 32){ pos - 32 } else { 0 };
+                let sirc = SIrcMsg{
+                    topic: irc.topic,
+                    member: irc.member,
+                    log: irc.log[start..pos],
+                    id: irc.id,                    
+                };
+                */
+                Ok(Response::with((status::Ok, json!(*irc).to_string())))
+            }else{
+                Ok(Response::with(status::NoContent))
             }
         })
         .mount("/grep", move |req:&mut Request| -> IronResult<Response>{
@@ -155,10 +174,22 @@ pub fn run_webs(setting:&Setting, send:Sender<String>, messages:Mesg){
                 }
             }
         })
+        .mount("/send", move |req:&mut Request| -> IronResult<Response> {
+            let map = req.get_ref::<Params>().unwrap();
+            match map.find(&["q"]){
+                Some(&Value::String(ref query)) =>{
+                    send_send.lock().unwrap().send(format!(":{} PRIVMSG {} :{}", nick, pagename, query)).unwrap();
+                    Ok(Response::with((status::Ok, "send")))
+                }
+                _ => {
+                    Ok(Response::with((status::BadRequest, "query error")))
+                }
+            }
+        })
         .mount("/dice", move |_:&mut Request| -> IronResult<Response> {
             let mut t = before.lock().unwrap();
             if t.elapsed().as_secs() > 10 {
-                msend.lock().unwrap().send(format!(":{} PRIVMSG {} :2D6",nick, pagename)).unwrap();
+                dice_send.lock().unwrap().send(format!(":{} PRIVMSG {} :2D6", dice_nick, dice_pagename)).unwrap();
                 *t = Instant::now();
                 Ok(Response::with((status::Ok, "dice")))
             }else{
@@ -213,12 +244,10 @@ impl Error for AuthError {
     }
 }
 
-
 struct BasicAuthMiddleware {
     name:String,
     pass:String,
 }
-
 
 impl BasicAuthMiddleware{
     fn new(name:&String, pass:&String) -> Self{

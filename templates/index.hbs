@@ -10,6 +10,30 @@
         let xhr = new XMLHttpRequest();
         let url = "dice";        
         xhr.open("GET", url, true);
+        xhr.onreadystatechange = function() {
+            if(xhr.readyState == 4 && xhr.status != 200){
+                alert("server busy!");
+            }
+        };
+        xhr.send();        
+    }
+
+    function send_message(){
+        let box = document.getElementById("sendMessage");
+        if(event.keyCode != 13 || box.value == ""){
+            return
+        }
+        let xhr = new XMLHttpRequest();
+        let url = "send?q="+box.value;        
+        xhr.open("GET", url, true);
+        xhr.onreadystatechange = function() {
+            if(xhr.readyState == 4 && xhr.status == 200){
+                box.value = "";
+            }
+            else if(xhr.readyState == 4 && xhr.status != 200){
+                alert("server busy!");
+            }
+        };
         xhr.send();        
     }
 
@@ -41,7 +65,7 @@
 
                     document.getElementById("log_area").innerHTML = msg;
                     update = log.id;
-                }
+                };
                 setTimeout(get_log, 1000);
             }
         }
@@ -56,15 +80,21 @@
         xhr.onreadystatechange = function() {
             if(xhr.readyState == 4 && xhr.status == 200){
                 let msg = "";
+                let before = "";
                 for(let gp of xhr.response){
                     if(gp.type == "match"){
                         let d = gp.data;
-                        msg += "<div>" + d.path.text + ": " + d.line_number + ": " + reptxt(d.lines.text) + "</div>"
+                        if(before != d.path.text){
+                            msg += "<div>" + "<a href=\"/log/" + d.path.text +"\" target=\"log\">" 
+                                + d.path.text + "</a></div>"
+                            before = d.path.text;
+                        }
+                        msg += "<div>" +d.line_number + ": " + reptxt(d.lines.text) + "</div>"
                     }
                 document.getElementById("search_area").innerHTML = msg;
                 }
             }
-        }
+        };
         xhr.send();
     }
 
@@ -76,40 +106,52 @@
     </head>
     <body>
         <h1>qpic irc</h1>
-        <h2>mesi</h2>
-        <table border="1">
-            <tr><th>id</th><th>title</th><th>number</th><th>member</th>
-            <th>create date</th><th>enable</th></tr>
-            {{#each mesi_list}}
-            <tr>
-            <td>{{id}}</td>
-            <td>{{title}}</td>
-            <td>{{number}}</td>
-            <td>{{member}}</td>
-            <td>{{create}}</td>
-            <td>{{enable}}</td>
-            </tr>
-            {{/each}}
-        </table>
         <div>
-        <!--幹事:<input type="text" id="organizer" value="{{orgnaizer}}">-->
-        <input type="button" value="dice 2D6" onclick="send_dice()" />
-        </div>
-        <div>
-        <a href="http://masutaxa.xrea.jp/ekidata/">いけますよサーチ</a>
-        </div>
         <h2>log</h2>
-        <div><label for="topic">Topic:</label><span id="topic" style="font-weight:bold"></span></div>
-        <div><label for="member">Member</label><span id="member"></span></div>
-        <br>
-        <div id="log_area"></div>
-        <h3>grep</h3>
-        <div><input type="text" id="search"/><input type="button" value="grep" onclick="searchlog()"/></div>
-        <div id="search_area"></div>
-        <p>
-        {{#each log_list}}
-        <div><a href="{{dir}}">{{name}}</a></div>
-        {{/each}}
-        </p>
+            <div><label for="topic">Topic:</label><span id="topic" style="font-weight:bold"></span></div>
+            <div><label for="member">Member</label><span id="member"></span></div>
+            <br>
+            <div id="log_area" style="width: 100%; height: 50ex; overflow: scroll;">
+            </div>
+            <div>
+                <input type="text" size="100" id="sendMessage" onkeypress="send_message()">
+            </div>
+        </div>
+
+        <div style="display:block;">
+        <h2>mesi</h2>
+            <table border="1">
+                <tr><th>id</th><th>title</th><th>number</th><th>member</th>
+                <th>create date</th><th>enable</th></tr>
+                {{#each mesi_list}}
+                <tr>
+                <td>{{id}}</td>
+                <td>{{title}}</td>
+                <td>{{number}}</td>
+                <td>{{member}}</td>
+                <td>{{create}}</td>
+                <td>{{enable}}</td>
+                </tr>
+                {{/each}}
+            </table>
+            <div>
+            <!--幹事:<input type="text" id="organizer" value="{{orgnaizer}}">-->
+            <input type="button" value="dice 2D6" onclick="send_dice()" />
+            </div>
+            <div>
+            <a href="http://masutaxa.xrea.jp/ekidata/">いけますよサーチ</a>
+            </div>
+        </div>
+
+        <div>
+            <h3>grep</h3>
+            <div><input type="text" id="search"/><input type="button" value="grep" onclick="searchlog()"/></div>
+            <div id="search_area"></div>
+            <p>
+            {{#each log_list}}
+            <div><a href="{{dir}}" target="log">{{name}}</a></div>
+            {{/each}}
+            </p>
+        </div>
     </body>
 </html>

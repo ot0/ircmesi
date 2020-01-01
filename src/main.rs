@@ -70,12 +70,12 @@ pub struct IrcMesg  {
 type Mesg = Arc<Mutex<IrcMesg>>;
 
 impl IrcMesg {
-    pub fn new() -> Mesg {
+    pub fn new(size:usize) -> Mesg {
         let msg = IrcMesg {
             topic:"".to_string(),
             member:"".to_string(),
-            cap: 32,
-            log:VecDeque::with_capacity(32),
+            cap: size,
+            log:VecDeque::with_capacity(size),
             id:0,
         };
         Arc::new(Mutex::new(msg))
@@ -101,6 +101,8 @@ struct Irc {
     password:String,
     nick:String,
     channel:String,
+    mesi: bool,
+    logsize: usize, 
 }
 
 #[derive(Deserialize, Debug)]
@@ -116,6 +118,7 @@ struct Webs{
     pem:String,
 }
 
+type MSend = Arc<Mutex<Sender<String>>>;
 
 fn main() {
     println!("Hello, world!");
@@ -146,13 +149,15 @@ fn main() {
     let setting:Setting = toml::from_str(&setting_string).unwrap();
 
     let (send, recv):(Sender<String>, Receiver<String>) = channel();
-    let messages:Mesg = IrcMesg::new();
+    let messages:Mesg = IrcMesg::new(setting.irc.logsize);
 
-    webs::run_webs(&setting, send.clone(), messages.clone());
-    connect_irc(setting, send, recv, messages).unwrap();
+    let msend = Arc::new(Mutex::new(send));
+
+    webs::run_webs(&setting, msend.clone(), messages.clone());
+    connect_irc(setting, msend, recv, messages).unwrap();
 }
 
-fn connect_irc(setting:Setting, send:Sender<String>, recv:Receiver<String>, messages:Mesg) -> Result<(), Box<Error>>{
+fn connect_irc(setting:Setting, send:MSend, recv:Receiver<String>, messages:Mesg) -> Result<(), Box<Error>>{
 
     let conn = Arc::new(TcpStream::connect(&setting.irc.server).unwrap());
     let mut bstream = BufReader::new(&(*conn));
@@ -168,11 +173,11 @@ fn connect_irc(setting:Setting, send:Sender<String>, recv:Receiver<String>, mess
         msg.lock().unwrap().append(out);
     };
 
-    let send_irc = Mutex::new(send.clone());
+    let send_irc = send.clone();
     let nick = setting.irc.nick.clone();
     let channel = setting.irc.channel.clone();
     let msg = messages.clone();
-    let do_irc_fn = move |line:&String, mesi:Option<&mut Mesi>|{
+    let do_irc_fn = move |line:&String, mesi:&mut Option<Mesi>|{
         let sp: Vec<&str> = line.split(" ").collect();
         if sp.len() < 2 {
             return
@@ -242,7 +247,7 @@ fn connect_irc(setting:Setting, send:Sender<String>, recv:Receiver<String>, mess
         let mut stream = LineWriter::new(&(*acon));
         loop{
             let s = recv.recv().unwrap();
-            th_irc(&s, None);
+            th_irc(&s, &mut None);
             let en = ISO_2022_JP.encode(s.as_str(), EncoderTrap::Ignore)
                 .unwrap_or(b"".to_vec());
             stream.write(en.as_slice()).unwrap();
@@ -250,12 +255,17 @@ fn connect_irc(setting:Setting, send:Sender<String>, recv:Receiver<String>, mess
         }
     });
 
-    send.send(format!("PASS {}", setting.irc.password)).unwrap();
-    send.send(format!("NICK {}", setting.irc.nick)).unwrap();
-    send.send(format!("USER {} 0 * :mesi by rust", setting.irc.nick)).unwrap();
-    send.send(format!(":{} JOIN {}", setting.irc.nick, setting.irc.channel)).unwrap();
+    //let mut mesi =  Mesi::new(send.clone());
+    let mut mesi = if setting.irc.mesi {
+        Some(Mesi::new(send.clone()))
+    }else{
+        None
+    };
 
-    let mut mesi = Mesi::new(send.clone());
+    send.lock().unwrap().send(format!("PASS {}", setting.irc.password)).unwrap();
+    send.lock().unwrap().send(format!("NICK {}", setting.irc.nick)).unwrap();
+    send.lock().unwrap().send(format!("USER {} 0 * :mesi by rust", setting.irc.nick)).unwrap();
+    send.lock().unwrap().send(format!(":{} JOIN {}", setting.irc.nick, setting.irc.channel)).unwrap();
 
     println!("connect irc");
     loop {
@@ -265,6 +275,6 @@ fn connect_irc(setting:Setting, send:Sender<String>, recv:Receiver<String>, mess
         let line = ISO_2022_JP.decode(&bl.as_bytes()[..bl.len()-2], DecoderTrap::Ignore)
             .unwrap_or("".to_string());
         //println!("{}",line);
-        do_irc(&line, Some(&mut mesi));
+        do_irc(&line, &mut mesi);
     }
 }

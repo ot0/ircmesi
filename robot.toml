@@ -5,6 +5,7 @@ server ="irc.org:6667"
 password = ""
 nick = "robot2"
 channel = "#test"
+mesi = true
 
 [log]
 dir = "log"

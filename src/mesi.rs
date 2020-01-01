@@ -1,15 +1,17 @@
 use regex::Regex;
 
 use sqlib;
-use std::sync::mpsc::Sender;
+//use std::sync::mpsc::Sender;
+
+use super::MSend;
 
 pub struct Mesi {
     now_project:usize,
-    send:Sender<String>,
+    send:MSend,
 }
 
 impl Mesi {
-    pub fn new(send:Sender<String>) -> Self{
+    pub fn new(send:MSend) -> Self{
         Mesi{
             now_project:0,
             send:send,
@@ -52,14 +54,14 @@ impl Mesi {
         match command {
             "shows" => {
                 for (i, pt) in parties.iter().enumerate() {
-                    self.send.send(
+                    self.send.lock().unwrap().send(
                         format!("NOTICE {} :{}, {}, {}", to, i, pt.title, pt.create_time)
                     ).unwrap();
                     let mut names:Vec<String> = Vec::new();
                     for mem in sqlib::get_member(&conn, pt.id){
                         names.push(mem.name);
                     }
-                    self.send.send(
+                    self.send.lock().unwrap().send(
                         format!("NOTICE {} :{}", to, names.join(","))
                     ).unwrap();
                 }                
