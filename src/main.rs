@@ -52,6 +52,7 @@ use chrono::{Local};
 
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 use std::sync::mpsc::{channel, Sender, Receiver};
 
 use std::collections::VecDeque;
@@ -152,16 +153,27 @@ fn main() {
     let messages:Mesg = IrcMesg::new(setting.irc.logsize);
 
     let msend = Arc::new(Mutex::new(send));
+    let mrecv = Arc::new(Mutex::new(recv));
 
     webs::run_webs(&setting, msend.clone(), messages.clone());
-    connect_irc(setting, msend, recv, messages).unwrap();
+
+    loop{
+        let err = connect_irc(&setting, msend.clone(), mrecv.clone(), messages.clone());
+        match err {
+            Err(e) => {
+                println!("err: {:?}", e);
+            }
+            _ => {
+                println!("connection close");
+            }
+        }
+        //msend.lock().unwrap().send("threadEnd".to_string()).unwrap();
+        thread::sleep(Duration::new(10, 0));
+    }
 }
 
-fn connect_irc(setting:Setting, send:MSend, recv:Receiver<String>, messages:Mesg) -> Result<(), Box<Error>>{
-
-    let conn = Arc::new(TcpStream::connect(&setting.irc.server).unwrap());
-    let mut bstream = BufReader::new(&(*conn));
-
+fn connect_irc<'a>(setting:&Setting, send:MSend, recv:Arc<Mutex<Receiver<String>>>, messages:Mesg) -> Result<(), Box<dyn Error>>
+{
     let logdir = setting.log.dir.clone();
     let msg = messages.clone();
     let do_message = move |line: &str| {
@@ -171,13 +183,16 @@ fn connect_irc(setting:Setting, send:MSend, recv:Receiver<String>, messages:Mesg
             .write(out.as_bytes()).unwrap();
         
         msg.lock().unwrap().append(out);
+        println!("{}", line);
     };
 
     let send_irc = send.clone();
     let nick = setting.irc.nick.clone();
     let channel = setting.irc.channel.clone();
     let msg = messages.clone();
-    let do_irc_fn = move |line:&String, mesi:&mut Option<Mesi>|{
+    let mesi_enable = setting.irc.mesi.clone();
+
+    let do_irc_fn = move |line:&String|{
         let sp: Vec<&str> = line.split(" ").collect();
         if sp.len() < 2 {
             return
@@ -196,13 +211,8 @@ fn connect_irc(setting:Setting, send:MSend, recv:Receiver<String>, messages:Mesg
                 ).unwrap();
             },
             "PRIVMSG" =>{
-                match mesi {
-                    Some(mesi) =>{
-                        if opt.starts_with(":mesi") {
-                            mesi.receive(from, to, &opt);
-                        }
-                    }
-                    None => {}
+                if mesi_enable && (opt.starts_with("mesi") || opt.starts_with("meshi")){
+                    Mesi::new(send_irc.clone()).receive(from, to, &opt);
                 }
                 do_message(&format!("<{}>{}", from, opt));
             },
@@ -239,42 +249,61 @@ fn connect_irc(setting:Setting, send:MSend, recv:Receiver<String>, messages:Mesg
             }
         }
     };
+        
+    let conn = Arc::new(TcpStream::connect(&setting.irc.server)?);
+    println!("connect irc");
+
     let do_irc = Arc::new(do_irc_fn);
 
     let acon = conn.clone();
     let th_irc = do_irc.clone();
     thread::spawn(move || {
-        let mut stream = LineWriter::new(&(*acon));
-        loop{
-            let s = recv.recv().unwrap();
-            th_irc(&s, &mut None);
-            let en = ISO_2022_JP.encode(s.as_str(), EncoderTrap::Ignore)
-                .unwrap_or(b"".to_vec());
-            stream.write(en.as_slice()).unwrap();
-            stream.write(b"\r\n").unwrap();
+    let mut bstream = BufReader::new(&(*acon));
+        loop {
+            let mut bl = String::new();
+            match bstream.read_line(&mut bl) {
+                Err(x) =>{
+                    println!("recv close:{:?}", x);
+                    break;
+                },
+                _ =>{}
+            };
+            if bl.len() == 0 {
+                println!("recv len 0");
+                break;
+            }
+            let line = ISO_2022_JP.decode(&bl.as_bytes()[..bl.len()-2], DecoderTrap::Ignore)
+                .unwrap_or("".to_string());
+            //println!("{}",line);
+            do_irc(&line);
         }
     });
 
-    //let mut mesi =  Mesi::new(send.clone());
-    let mut mesi = if setting.irc.mesi {
-        Some(Mesi::new(send.clone()))
-    }else{
-        None
-    };
+    send.lock().unwrap().send(format!("PASS {}", setting.irc.password))?;
+    send.lock().unwrap().send(format!("NICK {}", setting.irc.nick))?;
+    send.lock().unwrap().send(format!("USER {} 0 * :mesi by rust", setting.irc.nick))?;
+    send.lock().unwrap().send(format!(":{} JOIN {}", setting.irc.nick, setting.irc.channel))?;
 
-    send.lock().unwrap().send(format!("PASS {}", setting.irc.password)).unwrap();
-    send.lock().unwrap().send(format!("NICK {}", setting.irc.nick)).unwrap();
-    send.lock().unwrap().send(format!("USER {} 0 * :mesi by rust", setting.irc.nick)).unwrap();
-    send.lock().unwrap().send(format!(":{} JOIN {}", setting.irc.nick, setting.irc.channel)).unwrap();
+    let mut stream = LineWriter::new(&(*conn));
+    loop{
+        let s = recv.lock().unwrap().recv().unwrap();
 
-    println!("connect irc");
-    loop {
-        let mut bl = String::new();
-        bstream.read_line(&mut bl).unwrap();
-
-        let line = ISO_2022_JP.decode(&bl.as_bytes()[..bl.len()-2], DecoderTrap::Ignore)
-            .unwrap_or("".to_string());
-        //println!("{}",line);
-        do_irc(&line, &mut mesi);
+        let en = ISO_2022_JP.encode(s.as_str(), EncoderTrap::Ignore)
+            .unwrap_or(b"".to_vec());
+        let err = stream.write(en.as_slice());
+        match err {
+            Err(x) => {
+                println!("recv steam closed:{:?}", x);
+                break;
+            },
+            _ => {}
+        }
+        stream.write(b"\r\n").unwrap();
+        if s.starts_with("QUIT"){
+            break;
+        }
+        th_irc(&s);
     }
+    Ok(())
 }
+

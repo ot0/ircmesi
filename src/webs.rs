@@ -84,7 +84,7 @@ fn top_handler(_req: &mut Request, log_dir:&str) -> IronResult<Response> {
     return Ok(resp);
 }
 
-fn grep(dir:&String, query:&String) ->Result<String, Box<Error>> {
+fn grep(dir:&String, query:&String) ->Result<String, Box<dyn Error>> {
     let mut printer = grep_printer::JSON::new(vec![]);
     let matcher = RegexMatcher::new(&*query)?;
     let mut searcher = Searcher::new();
@@ -178,7 +178,12 @@ pub fn run_webs(setting:&Setting, send:MSend, messages:Mesg){
             let map = req.get_ref::<Params>().unwrap();
             match map.find(&["q"]){
                 Some(&Value::String(ref query)) =>{
-                    send_send.lock().unwrap().send(format!(":{} PRIVMSG {} :{}", nick, pagename, query)).unwrap();
+                    let mesg = if query.starts_with("/") {
+                        format!("{}", &query[1..])
+                    } else {
+                        format!(":{} PRIVMSG {} :{}", nick, pagename, query)
+                    };
+                    send_send.lock().unwrap().send(mesg).unwrap();
                     Ok(Response::with((status::Ok, "send")))
                 }
                 _ => {

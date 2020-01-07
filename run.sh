@@ -6,7 +6,7 @@ count=`ps -ef | grep $PROC |grep -v grep | wc -l`
 if [ $count = 0 ]; then
 	cd $ROOT
     cargo build --release
-	$PROC
+	$PROC $@
 else
 	echo "already run"
 fi
