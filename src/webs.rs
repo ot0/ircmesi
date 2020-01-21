@@ -101,17 +101,94 @@ fn grep(dir:&String, query:&String) ->Result<String, Box<dyn Error>> {
 
 pub fn run_webs(setting:&Setting, send:MSend, messages:Mesg){
 
-    let send_send = send.clone();
-    let dice_send = send.clone();
-    let log_dir = setting.log.dir.clone();
-    let search_dir = setting.log.dir.clone();
-    let pagename = setting.irc.channel.clone();
-    let nick = setting.irc.nick.clone();
-    let dice_pagename = setting.irc.channel.clone();
-    let dice_nick = setting.irc.nick.clone();    
-    let sld = Static::new(Path::new(&format!("{}/", setting.log.dir)));
-    let before = Mutex::new(Instant::now());
+    let msgfunc = move |req:&mut Request| -> IronResult<Response>{
+        let irc = messages.lock().unwrap();
+        let map = req.get_ref::<Params>().unwrap();
+        let pos:u64 = match map.find(&["id"]){
+            Some(&Value::String(ref id))=> {
+                match id.parse() {
+                    Ok(n) =>{ n }
+                    _ => { irc.id - 1 }
+                }
+            }
+            _ => { irc.id - 1 }
+        };
+        if pos < irc.id{
+            /*
+            let start = if(pos > 32){ pos - 32 } else { 0 };
+            let sirc = SIrcMsg{
+                topic: irc.topic,
+                member: irc.member,
+                log: irc.log[start..pos],
+                id: irc.id,                    
+            };
+            */
+            Ok(Response::with((status::Ok, json!(*irc).to_string())))
+        }else{
+            Ok(Response::with(status::NoContent))
+        }
+    };
 
+    let search_dir = setting.log.dir.clone();
+    let grepfunc = move |req:&mut Request| -> IronResult<Response>{
+        let map = req.get_ref::<Params>().unwrap();
+        match map.find(&["q"]){
+            Some(&Value::String(ref query)) =>{
+                //println!("{}", query);
+                match grep(&search_dir, query) {
+                    Ok(msg) =>{
+                        Ok(Response::with((status::Ok,format!("[{}{{\"type\":\"\"}}]",msg))))
+                    } 
+                    Err(err)=> {
+                        println!("search error:{:?}", err);
+                        Ok(Response::with((status::BadRequest, format!("{:?}", err))))
+                    }
+                }
+            }
+            _ => {
+                Ok(Response::with((status::BadRequest, "query error")))
+            }
+        }
+    };
+
+    let ssend = send.clone();
+    let nick = setting.irc.nick.clone();
+    let pagename = setting.irc.channel.clone();
+    let sendfunc = move |req:&mut Request| -> IronResult<Response> {
+        let map = req.get_ref::<Params>().unwrap();
+        match map.find(&["q"]){
+            Some(&Value::String(ref query)) =>{
+                let mesg = if query.starts_with("/") {
+                    format!("{}", &query[1..])
+                } else {
+                    format!(":{} PRIVMSG {} :{}", nick, pagename, query)
+                };
+                ssend.lock().unwrap().send(mesg).unwrap();
+                Ok(Response::with((status::Ok, "send")))
+            }
+            _ => {
+                Ok(Response::with((status::BadRequest, "query error")))
+            }
+        }
+    };
+
+    let ssend = send.clone();
+    let pagename = setting.irc.channel.clone();
+    let nick = setting.irc.nick.clone();    
+    let before = Mutex::new(Instant::now());
+    let dicefunc = move |_:&mut Request| -> IronResult<Response> {
+        let mut t = before.lock().unwrap();
+        if t.elapsed().as_secs() > 10 {
+            ssend.lock().unwrap().send(format!(":{} PRIVMSG {} :2D6", nick, pagename)).unwrap();
+            *t = Instant::now();
+            Ok(Response::with((status::Ok, "dice")))
+        }else{
+            Ok(Response::with((status::ServiceUnavailable, "wait")))
+        }
+    };
+
+    let log_dir = setting.log.dir.clone();
+    let sld = Static::new(Path::new(&format!("{}/", setting.log.dir)));
     let mut mount = Mount::new();
     mount
         .mount("/", move |req: &mut Request|-> IronResult<Response> {
@@ -127,80 +204,10 @@ pub fn run_webs(setting:&Setting, send:MSend, messages:Mesg){
                 other => other
             }
         })
-        .mount("/msg", move |req:&mut Request| -> IronResult<Response>{
-            let irc = messages.lock().unwrap();
-            let map = req.get_ref::<Params>().unwrap();
-            let pos:u64 = match map.find(&["id"]){
-                Some(&Value::String(ref id))=> {
-                    match id.parse() {
-                        Ok(n) =>{ n }
-                        _ => { irc.id - 1 }
-                    }
-                }
-                _ => { irc.id - 1 }
-            };
-            if pos < irc.id{
-                /*
-                let start = if(pos > 32){ pos - 32 } else { 0 };
-                let sirc = SIrcMsg{
-                    topic: irc.topic,
-                    member: irc.member,
-                    log: irc.log[start..pos],
-                    id: irc.id,                    
-                };
-                */
-                Ok(Response::with((status::Ok, json!(*irc).to_string())))
-            }else{
-                Ok(Response::with(status::NoContent))
-            }
-        })
-        .mount("/grep", move |req:&mut Request| -> IronResult<Response>{
-            let map = req.get_ref::<Params>().unwrap();
-            match map.find(&["q"]){
-                Some(&Value::String(ref query)) =>{
-                    //println!("{}", query);
-                    match grep(&search_dir, query) {
-                        Ok(msg) =>{
-                            Ok(Response::with((status::Ok,format!("[{}{{\"type\":\"\"}}]",msg))))
-                        } 
-                        Err(err)=> {
-                            println!("search error:{:?}", err);
-                            Ok(Response::with((status::BadRequest, format!("{:?}", err))))
-                        }
-                    }
-                }
-                _ => {
-                    Ok(Response::with((status::BadRequest, "query error")))
-                }
-            }
-        })
-        .mount("/send", move |req:&mut Request| -> IronResult<Response> {
-            let map = req.get_ref::<Params>().unwrap();
-            match map.find(&["q"]){
-                Some(&Value::String(ref query)) =>{
-                    let mesg = if query.starts_with("/") {
-                        format!("{}", &query[1..])
-                    } else {
-                        format!(":{} PRIVMSG {} :{}", nick, pagename, query)
-                    };
-                    send_send.lock().unwrap().send(mesg).unwrap();
-                    Ok(Response::with((status::Ok, "send")))
-                }
-                _ => {
-                    Ok(Response::with((status::BadRequest, "query error")))
-                }
-            }
-        })
-        .mount("/dice", move |_:&mut Request| -> IronResult<Response> {
-            let mut t = before.lock().unwrap();
-            if t.elapsed().as_secs() > 10 {
-                dice_send.lock().unwrap().send(format!(":{} PRIVMSG {} :2D6", dice_nick, dice_pagename)).unwrap();
-                *t = Instant::now();
-                Ok(Response::with((status::Ok, "dice")))
-            }else{
-                Ok(Response::with((status::ServiceUnavailable, "wait")))
-            }
-        });
+        .mount("/msg", msgfunc)
+        .mount("/grep", grepfunc)
+        .mount("/send", sendfunc)
+        .mount("/dice", dicefunc );
 
     //Create Chain
     let mut chain = Chain::new(mount);

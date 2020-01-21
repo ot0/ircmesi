@@ -31,7 +31,7 @@ function send_key(){
 
 function send_message(value){
     let xhr = new XMLHttpRequest();
-    let url = "send?q="+value;        
+    let url = "send?q="+encodeURIComponent(value);        
     xhr.open("GET", url, true);
     xhr.onreadystatechange = function() {
         if(xhr.readyState == 4 && xhr.status == 200){

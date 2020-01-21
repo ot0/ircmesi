@@ -38,9 +38,7 @@ use std::net::TcpStream;
 
 use std::env;
 use getopts::Options;
-
 use std::string::String;
-
 use std::fs::OpenOptions;
 use std::path::Path;
 
@@ -172,7 +170,7 @@ fn main() {
     }
 }
 
-fn connect_irc<'a>(setting:&Setting, send:MSend, recv:Arc<Mutex<Receiver<String>>>, messages:Mesg) -> Result<(), Box<dyn Error>>
+fn connect_irc(setting:&Setting, send:MSend, recv:Arc<Mutex<Receiver<String>>>, messages:Mesg) -> Result<(), Box<dyn Error>>
 {
     let logdir = setting.log.dir.clone();
     let msg = messages.clone();
