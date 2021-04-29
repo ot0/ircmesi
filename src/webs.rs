@@ -68,6 +68,14 @@ fn top_handler(_req: &mut Request, log_dir:&str) -> IronResult<Response> {
     }
     data.insert("mesi_list".to_string(), mesi_list);
 
+    /*
+        loglist
+            <p>            
+            {{#each log_list}}
+            <div><a href="{{dir}}" target="log">{{name}}</a></div>
+            {{/each}}
+            </p>
+
     let mut log_list:Vec<HashMap<String, String>> = Vec::new();
     let filelist = get_filelist(log_dir); 
 
@@ -80,6 +88,7 @@ fn top_handler(_req: &mut Request, log_dir:&str) -> IronResult<Response> {
         log_list.push(logf);
     }
     data.insert("log_list".to_string(), log_list);
+    */
     resp.set_mut(Template::new("index", data)).set_mut(status::Ok);
     return Ok(resp);
 }
