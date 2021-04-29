@@ -6,6 +6,7 @@ password = ""
 nick = "robot2"
 channel = "#test"
 mesi = true
+logsize = 32
 
 [log]
 dir = "log"

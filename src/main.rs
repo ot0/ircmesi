@@ -190,7 +190,7 @@ fn connect_irc(setting:&Setting, send:MSend, recv:Arc<Mutex<Receiver<String>>>, 
     let msg = messages.clone();
     let mesi_enable = setting.irc.mesi.clone();
 
-    let do_irc_fn = move |line:&String|{
+    let do_irc_fn = Arc::new(move |line:&String, mesi:&Arc<Mutex<Mesi>>|{
         let sp: Vec<&str> = line.split(" ").collect();
         if sp.len() < 2 {
             return
@@ -208,9 +208,10 @@ fn connect_irc(setting:&Setting, send:MSend, recv:Arc<Mutex<Receiver<String>>>, 
                     format!("PONG {}\r\n", to)
                 ).unwrap();
             },
+            "PONG" => {}
             "PRIVMSG" =>{
-                if mesi_enable && (opt.starts_with("mesi") || opt.starts_with("meshi")){
-                    Mesi::new(send_irc.clone()).receive(from, to, &opt);
+                if mesi_enable && (opt.starts_with(":mesi") || opt.starts_with(":meshi")){
+                    mesi.lock().unwrap().receive(from, to, &opt);
                 }
                 do_message(&format!("<{}>{}", from, opt));
             },
@@ -219,7 +220,7 @@ fn connect_irc(setting:&Setting, send:MSend, recv:Arc<Mutex<Receiver<String>>>, 
             },
             "332" | "TOPIC" => {
                 // topic
-                do_message(&format!("/topic {}", opt));
+                do_message(&format!("<{}>/topic {}", from, opt));
                 msg.lock().unwrap().topic = opt;
             }
             "353" => {
@@ -243,18 +244,20 @@ fn connect_irc(setting:&Setting, send:MSend, recv:Arc<Mutex<Receiver<String>>>, 
             },
             _ => {
                 //do_message(&line);
-                //println!("{}", line)
+                println!("{}", line)
             }
         }
-    };
+    });
         
     let conn = Arc::new(TcpStream::connect(&setting.irc.server)?);
     println!("connect irc");
-
-    let do_irc = Arc::new(do_irc_fn);
+    
+    let mmesi = Arc::new(Mutex::new(Mesi::new(send.clone())));
+    //let do_irc = Arc::new(do_irc_fn);
 
     let acon = conn.clone();
-    let th_irc = do_irc.clone();
+    let do_irc = do_irc_fn.clone();
+    let mesi = mmesi.clone();
     thread::spawn(move || {
     let mut bstream = BufReader::new(&(*acon));
         loop {
@@ -273,7 +276,7 @@ fn connect_irc(setting:&Setting, send:MSend, recv:Arc<Mutex<Receiver<String>>>, 
             let line = ISO_2022_JP.decode(&bl.as_bytes()[..bl.len()-2], DecoderTrap::Ignore)
                 .unwrap_or("".to_string());
             //println!("{}",line);
-            do_irc(&line);
+            &do_irc(&line, &mesi);
         }
     });
 
@@ -283,6 +286,8 @@ fn connect_irc(setting:&Setting, send:MSend, recv:Arc<Mutex<Receiver<String>>>, 
     send.lock().unwrap().send(format!(":{} JOIN {}", setting.irc.nick, setting.irc.channel))?;
 
     let mut stream = LineWriter::new(&(*conn));
+    let mesi = mmesi.clone();
+    let do_irc = do_irc_fn.clone();
     loop{
         let s = recv.lock().unwrap().recv().unwrap();
 
@@ -300,7 +305,7 @@ fn connect_irc(setting:&Setting, send:MSend, recv:Arc<Mutex<Receiver<String>>>, 
         if s.starts_with("QUIT"){
             break;
         }
-        th_irc(&s);
+        &do_irc(&s, &mesi);
     }
     Ok(())
 }
