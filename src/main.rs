@@ -129,7 +129,7 @@ fn main() {
     opts.optflag("h", "help", "print this help menu");
 
     let matches = opts.parse(&args[1..])
-        .unwrap_or_else(|f| panic!(f.to_string()));
+        .unwrap_or_else(|f| panic!("{}", f));
 
     if matches.opt_present("h") {
         print!("{}", opts.usage("Usage: mesi [options]"));
@@ -218,6 +218,9 @@ fn connect_irc(setting:&Setting, send:MSend, recv:Arc<Mutex<Receiver<String>>>, 
             "NOTICE" => {
                 do_message(&format!("={}={}", from, opt));
             },
+            "001" => {
+                send_irc.lock().unwrap().send(format!("JOIN {}", channel)).unwrap();
+            }
             "332" | "TOPIC" => {
                 // topic
                 do_message(&format!("<{}>/topic {}", from, opt));
@@ -283,7 +286,6 @@ fn connect_irc(setting:&Setting, send:MSend, recv:Arc<Mutex<Receiver<String>>>, 
     send.lock().unwrap().send(format!("PASS {}", setting.irc.password))?;
     send.lock().unwrap().send(format!("NICK {}", setting.irc.nick))?;
     send.lock().unwrap().send(format!("USER {} 0 * :mesi by rust", setting.irc.nick))?;
-    send.lock().unwrap().send(format!(":{} JOIN {}", setting.irc.nick, setting.irc.channel))?;
 
     let mut stream = LineWriter::new(&(*conn));
     let mesi = mmesi.clone();

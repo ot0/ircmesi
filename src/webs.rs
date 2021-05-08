@@ -44,7 +44,7 @@ fn get_filelist(dir:&str) ->Vec<String> {
     filelist
 }
 
-fn top_handler(_req: &mut Request, log_dir:&str) -> IronResult<Response> {
+fn top_handler(_req: &mut Request) -> IronResult<Response> {
     let mut resp = Response::new();
     let mut data = HashMap::new();
 
@@ -68,27 +68,6 @@ fn top_handler(_req: &mut Request, log_dir:&str) -> IronResult<Response> {
     }
     data.insert("mesi_list".to_string(), mesi_list);
 
-    /*
-        loglist
-            <p>            
-            {{#each log_list}}
-            <div><a href="{{dir}}" target="log">{{name}}</a></div>
-            {{/each}}
-            </p>
-
-    let mut log_list:Vec<HashMap<String, String>> = Vec::new();
-    let filelist = get_filelist(log_dir); 
-
-    for filename in filelist {
-        let mut logf = HashMap::new();
-        //let filename = log.unwrap().file_name().into_string()
-        //    .unwrap_or("code error".to_string());
-        logf.insert("dir".to_string(), format!("log/{}", filename));
-        logf.insert("name".to_string(), filename);
-        log_list.push(logf);
-    }
-    data.insert("log_list".to_string(), log_list);
-    */
     resp.set_mut(Template::new("index", data)).set_mut(status::Ok);
     return Ok(resp);
 }
@@ -196,12 +175,11 @@ pub fn run_webs(setting:&Setting, send:MSend, messages:Mesg){
         }
     };
 
-    let log_dir = setting.log.dir.clone();
     let sld = Static::new(Path::new(&format!("{}/", setting.log.dir)));
     let mut mount = Mount::new();
     mount
         .mount("/", move |req: &mut Request|-> IronResult<Response> {
-            top_handler(req, &log_dir)
+            top_handler(req)
         })
         .mount("/resources", Static::new(Path::new("resources/")))
         .mount("/log", move |req: &mut Request| -> IronResult<Response> {
@@ -229,7 +207,7 @@ pub fn run_webs(setting:&Setting, send:MSend, messages:Mesg){
     hbse.add(Box::new(
         DirectorySource::new("./templates/", ".hbs")));
     if let Err(r) = hbse.reload() {
-        panic!("{}", r.description());
+        panic!("{}", r);
     }
     chain.link_after(hbse);
     
